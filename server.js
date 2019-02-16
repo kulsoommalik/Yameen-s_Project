@@ -11,11 +11,12 @@ const {USER_MODEL} = require('./models/USER');
 const {ADMIN_MODEL} = require('./models/ADMINS');
 const {RATE_LIST_MODEL} = require('./models/RATE_LIST');
 const {STATS_MODEL} = require('./models/STATS');
+const {MAPPINGS_MODEL} = require('./models/MAPPINGS');
 
-//const {get_data_from_db} = require('./middleware/fetch-data');
 const {sendEmail} = require('./middleware/send-email');
 const {uploadFile} = require('./middleware/upload-file');
 const {getData} = require('./middleware/get-data');
+const {getSubAccounts} = require('./middleware/get-unassigned-subAccounts');
 
 
 const upload = multer({ dest: 'tmp/csv/' });    //folder for temp files
@@ -75,10 +76,7 @@ app.get('/login', (req, res)=>{
     USER_MODEL.find({username: req.body.username},{password:1}).then((data)=>{
 
         let hashedPassword = data[0].password;
-        // console.log('data: ', data);
-        // console.log('hashed pass: ', hashedPassword);
-        // console.log('pass: ', req.body.password);
-
+        //comparing password
         bcrypt.compare(req.body.password, hashedPassword).then((result)=>{
             if(result){
                 res.send('login');
@@ -203,7 +201,7 @@ app.post('/upload-file', upload.single('file') ,(req, res)=>{
         res.send(fileRows);
     });
 });
-app.use('/upload-csv', this.app);
+// app.use('/upload-csv', this.app);
 
 //8 === admin signup -> req: email, pass
 app.post('/admin-signup', (req, res)=>{
@@ -267,7 +265,7 @@ app.delete('/remove-admin', (req, res)=>{
 });
 
 //12 === Show all main accounts
-app.get('/get-main-accounts', (req, res)=>{
+app.get('/get-all-main-accounts', (req, res)=>{
     
     ADMIN_MODEL.find().then((data)=>{
         res.send(data);
@@ -282,18 +280,191 @@ app.get('/get-stats', async (req,res)=>{
     res.send(await getData('stats', {username: req.body.username}, {}));
 });
 
-//14 === Forgot password 
-app.post('/forgot-password', (req, res)=>{
+//14 === Forgot password -> req: newPassword, retypePassword, collectionName, username/email
+app.post('/forgot-password',async (req, res)=>{
 
-    if(req.body.newPassword === req.body.retypePassword){
+    if(req.body.newPassword !== req.body.retypePassword){
         return res.status(404).send('Passwords not matched');
     }
+    //hashing password
+    var myPromise = ()=>{
+        return new Promise((resolve, reject)=>{
+            bcrypt.genSalt(10, (err, salt)=>{
+                bcrypt.hash(req.body.newPassword, salt, (err, hash)=>{
+                    if(err)
+                        reject(err);
+
+                    resolve(hash);
+                });
+            });
+        });
+    };
+    var callMyPromise = async()=>{
+        var res = await (myPromise());
+        return res;
+    }
+    var hashedPass = await callMyPromise();
+    //--- hashing end ---
     
     if(req.body.collectionName === "user_account"){
-        USER_MODEL.findOneAndUpdate({username: req.body.username}, {$pull: {password: }})
+        USER_MODEL.findOneAndUpdate({username: req.body.username}, {$set: {password: hashedPass}}, {new: true})
+        .then(data =>{
+            res.send(data);
+        }).catch(e =>{
+            res.status(404).send(e);
+        });
     }
+    if(req.body.collectionName === "main_accounts"){
+        ADMIN_MODEL.findOneAndUpdate({email: req.body.email}, {$set: {password: hashedPass}}, {new: true})
+        .then(data=>{
+            res.send(data);
+        }).catch(e=>{
+            res.status(404).send(e);
+        });
+    }
+});
+//15 === Map user -> req: username(user), mainAccount(admin email), subAccount
+app.post('/map-user', (req, res)=>{
+    
+    //user exists in USER_MODEL
+    USER_MODEL.find({username: req.body.username}).then((d)=>{
 
-})
+        if(d.length !== 0){
+            MAPPINGS_MODEL.find({username: req.body.username}).then((d)=>{
+            
+                if(d.length === 0){ //user not mapped
+                    //if password is found that means mainAccount exists
+                    ADMIN_MODEL.findOne({email: req.body.mainAccount}, {password:1, subAccount:1, _id:0}).then(async (data)=>{        
+                        //check if subAccount is valid and subAccount is not already assigned
+                        let sub = new Array();
+                        sub = await getSubAccounts(req.body.mainAccount);
+                        
+                        if(sub.includes(req.body.subAccount)){ // if subAccount is from unassigned subaccounts  
+                            //mapping new user object 
+                            let mapUser = new MAPPINGS_MODEL({
+                                username: req.body.username,
+                                mainAccount: req.body.mainAccount,
+                                password: data.password,
+                                subAccount: req.body.subAccount
+                            });
+                            mapUser.save();
+                            return res.send(mapUser);
+                        }
+                        return res.status(404).send('sub-account already assigned to another user or invalid!!');
+    
+                    }).catch(e=>{
+                        return res.status(404).send('main-account not found!!!');
+                    });
+                }
+                else{
+                    return res.status(404).send('User already mapped!!');
+                }
+    
+            }).catch((e)=>{
+                res.status(404).send(e);
+            });
+        }
+        else{
+            return res.status(404).send('username does not exist!!');
+        }
+
+    }).catch((e)=>{
+        return res.status(404).send(e);
+    });
+
+});
+
+//16 === get unassigned sub-accounts -> req: mainAccount //gives available subaccounts of given email
+app.get('/get-unassigned-subAccounts', async (req, res)=>{
+    
+    res.send(await getSubAccounts(req.body.mainAccount));
+});
+
+//17 === get main-accounts having unassigned sub-accounts
+app.get('/get-mainAccounts-with-subAccounts', (req, res)=>{
+
+    ADMIN_MODEL.find({}, {email:1, _id:0}).then(async (allEmails)=>{
+        //console.log('allEmails', allEmails);  //all emails of admins
+        
+        var allSubAccounts = new Array();
+        var  adminsHaveSubAccounts = new Array();
+
+        for(var i=0; i < allEmails.length; i++){
+            allSubAccounts[i] = await getSubAccounts(allEmails[i].email);
+            if(allSubAccounts[i].length !== 0){
+                adminsHaveSubAccounts[i] = allEmails[i];
+            }
+        }
+        //console.log('admins having sub accs:',adminsHaveSubAccounts);
+        res.send(adminsHaveSubAccounts);
+        
+    }).catch((e)=>{
+        res.status(404).send();
+    });
+});
+
+//18 === get all Mappings
+app.get('/get-all-mappings', async(req, res)=>{
+    
+    res.send(await getData('mappings', {}, {}));
+});
+
+//19 === change mappings account -> req: username , main acc, sub acc
+app.post('/update-mappings-account', (req, res)=>{
+
+    MAPPINGS_MODEL.find({username: req.body.username}).then((d)=>{
+
+        if(d.length !== 0){ //means user found
+
+            ADMIN_MODEL.find({email: req.body.mainAccount}, {password:1, _id:0}).then(async(data)=>{
+                
+                if(data.length !== 0){  //means main acc exist
+                    let sub = new Array();
+                    sub = await getSubAccounts(req.body.mainAccount);
+
+                    if(sub.includes(req.body.subAccount)){ //sub acc available                                            
+                        MAPPINGS_MODEL.findOneAndUpdate({username: req.body.username}, {$set: {mainAccount: req.body.mainAccount, subAccount: req.body.subAccount, password: data[0].password}}, {new: true}).then((updatedData)=>{
+                            return res.send({status: 'Updated', updatedData});
+                        }).catch((e)=>{
+                            return res.status(404).send(e);
+                        });
+                    }
+                    else{
+                        return res.status(404).send('sub account not available or invalid'); //sub acc is either not in available subAccs or invalid
+                    }
+                }
+                else{
+                    return res.status(404).send('main account does not exist');      
+                }
+
+            }).catch((e)=>{
+                return res.status(404).send(e);        
+            });
+        }
+        else{
+            return res.status(404).send('User not mapped!!');
+        }
+    }).catch((e)=>{
+        return res.status(404).send(e);        
+    });
+});
+
+//20 === Remove mapping -> req: username
+app.delete('/remove-mapping',(req, res)=>{
+
+    MAPPINGS_MODEL.find({username: req.body.username}).then((d)=>{
+        if(d.length !== 0){
+            MAPPINGS_MODEL.find({username: req.body.username}).remove().exec();
+            return res.send('User removed!!');
+        }
+        else{
+            return res.status(404).send('User not found')      
+        }
+    }).catch((e)=>{
+        console.log(e);
+        
+    });
+});
 
 //========================================================
 app.listen(3000, ()=>{

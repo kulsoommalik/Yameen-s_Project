@@ -1,3 +1,5 @@
+//expected response not working
+
 const MongoClient = require('mongodb').MongoClient
 
 var url = 'mongodb://localhost:27017/myApp';
@@ -13,9 +15,12 @@ async function getData(collectionName, inputQuery, expectedResponse){
                 const db = client.db('myApp');
         
                 db.collection(collectionName).find(inputQuery, expectedResponse).toArray(function(err, data) {
-                    err 
-                    ? reject(err) 
-                    : resolve(data);
+                    client.close();
+                    if(err)
+                        reject(err);
+                    
+                    resolve(data);
+                    //console.log(data);     
                 });
             });
         });
