@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 
 let mappingSchema = mongoose.Schema({
+    username: String,
     mainAccount: String,
     password: String,
-    subAccount: String,
-    username: String
+    subAccount: String
 });
 
 var MAPPINGS_MODEL = mongoose.model('mappings', mappingSchema);

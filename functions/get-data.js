@@ -27,7 +27,6 @@ async function getData(collectionName, inputQuery, expectedResponse){
     }; 
     var callMyPromise = async () => {
         var res = await (myPromise());
-        //anything here is executed after result is resolved
         return res;
     };
     return await callMyPromise();

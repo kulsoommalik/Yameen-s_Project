@@ -5,10 +5,23 @@ const bcrypt = require('bcrypt');
 var UserSchema = new mongoose.Schema({
     status: {
         type: String,
-        required: false
+        default: 'DISABLED'
     },
     balance: {
+        type: Number,
         default: 0
+    },
+    rate: {
+      type: Number,
+      default: 0
+    },
+    suspendLimit: {
+      type: Number,
+      default: 0
+    },
+    blockIP : {
+      type: Boolean,
+      default: true
     },
     legalCompanyName: {
         type: String,

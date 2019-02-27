@@ -1,27 +1,85 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
-const busboyBodyParser = require('busboy-body-parser');
 const fs = require('fs');
 const csv = require('fast-csv');
 const multer = require('multer');
+const path = require('path');
+const upload = require('express-fileupload');
 
 const {mongoose} = require('./mongoose');
+
 const {USER_MODEL} = require('./models/USER');
 const {ADMIN_MODEL} = require('./models/ADMINS');
 const {RATE_LIST_MODEL} = require('./models/RATE_LIST');
 const {STATS_MODEL} = require('./models/STATS');
 const {MAPPINGS_MODEL} = require('./models/MAPPINGS');
+const {USER_IP_MODEL} = require('./models/USER_IPS');
 
-const {sendEmail} = require('./middleware/send-email');
-const {uploadFile} = require('./middleware/upload-file');
-const {getData} = require('./middleware/get-data');
-const {getSubAccounts} = require('./middleware/get-unassigned-subAccounts');
+const {sendEmail} = require('./functions/send-email');
+const {getData} = require('./functions/get-data');
+const {getSubAccounts} = require('./functions/get-unassigned-subAccounts');
 
-
-const upload = multer({ dest: 'tmp/csv/' });    //folder for temp files
 const app = express();
 app.use(bodyParser.urlencoded({extended:true}));
+app.use(upload());
+
+app.post('/newUpload', (req, res)=>{
+    if(req.files){
+        // console.log(req.files);
+        // console.log(req.body.filename);
+        //  console.log(req.files.file.name);
+        var file = req.files.file;
+        var filename = file.name;
+        var filepath = path.join(__dirname, '/public/uploads/');
+        var targetPath = filepath+ filename;        
+
+        file.mv(targetPath, function(err){
+            if(err){
+                return res.status(404).send(err);
+            }
+            else{
+                return res.send('file uploaded');
+            }
+        });
+
+        // var file = req.files.file;
+        // var filename = file.name;
+        // var tmpFilepath = req.files.file.tempFilePath;
+        // var filepath = path.join(__dirname, 'uploads/') + filename;
+        // fs.rename(tmpFilepath, filepath, function(err){
+        //     if (err){
+        //         return res.send(err);
+        //     }
+        //     // delete the temporary file, so that the explicitly set temporary upload dir does not get filled with unwanted files
+        //     fs.unlink(tmpFilepath, function(err) {
+        //         if (err){
+        //             return res.send(err);
+        //         }
+        //         res.send('File uploaded to: ' + filepath);
+        //     });
+    
+        // });        
+    }
+});
+
+// const upload = multer({ dest: 'tmp/csv/' });    //folder for  files
+
+// //7 === uploading csv/pdf file -> req: filename, filepath
+// app.post('/upload-file', upload.single('file') ,(req, res)=>{
+
+//     const fileRows = [];
+//     // open uploaded file
+//     csv.fromPath(req.file.path).on("data", (data)=>{
+//         fileRows.push(data); // push each row
+//     }).on("end",()=>{
+//         console.log(fileRows)
+//         fs.unlinkSync(req.file.path);   // remove temp file
+//         //process "fileRows" and respond
+//         res.send(fileRows);
+//     });
+// });
+
 
 //1 === user Signup
 app.post('/signup', (req, res)=>{
@@ -30,8 +88,6 @@ app.post('/signup', (req, res)=>{
         return res.status(404).send('Passwords not matched');
     }
     var user = new USER_MODEL({
-        status: 'DISABLED',
-        balance: 0,
         legalCompanyName: req.body.legalCompanyName,
         corporateType: req.body.corporateType,
         username: req.body.username,
@@ -51,9 +107,9 @@ app.post('/signup', (req, res)=>{
     });
     
     user.save().then((doc)=>{
-        res.send({status: saved, data: doc});
+        res.send({status: 'saved', data: doc});        
 
-        //sendind email to admin work
+        // sendind email to admin work
         sendEmail({
             user: 'kikis.art22@gmail.com',
             pass: '<Karachi90!!1/>'
@@ -140,23 +196,17 @@ app.post('/confirm-email', (req, res)=>{
 //6 === updating user fields -> req: username, updated fields
 app.post('/update-user', (req, res)=>{
 
-    let previousBalance;
-    USER_MODEL.find({username: req.body.username}, {balance:1}).then((bal)=>{
-        previousBalance = bal[0].balance;
-    }).catch((e)=>{
-        console.log(e);
-    });
-
     USER_MODEL.findOneAndUpdate({username: req.body.username}, {$set: req.body}, {new: true}).then((data)=>{
-        //sending email if balance changed
-        let keys = Object.keys(req.body);
-        let flag = false;
-        for(var i=0; i<keys.length; i++){
-            if(keys[i] == 'balance'){
-                flag = true;
-            }
-        }
-        if(flag){
+        let user = req.body.username;
+
+        if(req.body.hasOwnProperty('balance')){
+            let previousBalance;
+            USER_MODEL.find({username: req.body.username}, {balance:1}).then((bal)=>{
+            previousBalance = bal[0].balance;
+            }).catch((e)=>{
+                console.log(e);
+            });
+
             sendEmail({
                 user: 'kikis.art22@gmail.com',
                 pass: '<Karachi90!!1/>'
@@ -166,42 +216,36 @@ app.post('/update-user', (req, res)=>{
                 subject: 'Balance Changed',
                 text: `hey !! ${req.body.username} your balance has been changed from ${previousBalance} to ${req.body.balance}`
             });
+
+            if(req.body.balance > 0){                
+                USER_MODEL.findOneAndUpdate({username: req.body.username}, {$set: {blockIP: false}}).exec();
+            }
+            else if(req.body.balance <= 0){
+                USER_MODEL.findOneAndUpdate({username: req.body.username}, {$set: {blockIP: true}}).exec();
+            }            
+            delete req.body.username;
             delete req.body.balance;
         }
         //seding email when other fields changed
-        let reqString = req.body.toString();
-        sendEmail({
-            user: 'kikis.art22@gmail.com',
-            pass: '<Karachi90!!1/>'
-        }, {
-            from: '"Kikis art" kikis.art22@gmail.com',
-            to: data.noticeEmail,
-            subject: 'Fields Changed',
-            text: `hey !! ${req.body.username} following fields has been changed!!! ${reqString}`
-        });
 
+        if(Object.keys(req.body).length > 0){            
+            let reqString = req.body.toString();
+            sendEmail({
+                user: 'kikis.art22@gmail.com',
+                pass: '<Karachi90!!1/>'
+            }, {
+                from: '"Kikis art" kikis.art22@gmail.com',
+                to: data.noticeEmail,
+                subject: 'Fields Changed',
+                text: `hey !! ${user} following fields has been changed!!! ${reqString}`
+            });
+        }        
         res.send({data});
 
     }).catch((e)=>{
         res.status(404).send();
     });
 });
-
-//7 === uploading csv/pdf file -> req: filename, filepath
-app.post('/upload-file', upload.single('file') ,(req, res)=>{
-
-    const fileRows = [];
-    // open uploaded file
-    csv.fromPath(req.file.path).on("data", (data)=>{
-        fileRows.push(data); // push each row
-    }).on("end",()=>{
-        console.log(fileRows)
-        fs.unlinkSync(req.file.path);   // remove temp file
-        //process "fileRows" and respond
-        res.send(fileRows);
-    });
-});
-// app.use('/upload-csv', this.app);
 
 //8 === admin signup -> req: email, pass
 app.post('/admin-signup', (req, res)=>{
@@ -222,13 +266,16 @@ app.post('/admin-signup', (req, res)=>{
 app.post('/add-sub-account', (req, res)=>{
 
     let isPresent = false;
-    ADMIN_MODEL.findOne({email: req.body.email}, {subAccount: 1}).then((data)=>{
+    //checking if subAccount is unique
+    ADMIN_MODEL.findOne({email: req.body.email}, {subAccount: 1}).then(async (data)=>{
+
         for(var i=0; i<data.subAccount.length; i++){
             if(req.body.subAccount === data.subAccount[i]){
                 isPresent = true;
                 break;
             }
         }
+                
         if(!isPresent){
             ADMIN_MODEL.findOneAndUpdate({email: req.body.email}, {$push: {subAccount: req.body.subAccount}}, {new: true}).then((doc)=>{
                 return res.send({status: 'updated', data: doc});
@@ -390,7 +437,7 @@ app.get('/get-mainAccounts-with-subAccounts', (req, res)=>{
         var  adminsHaveSubAccounts = new Array();
 
         for(var i=0; i < allEmails.length; i++){
-            allSubAccounts[i] = await getSubAccounts(allEmails[i].email);
+            allSubAccounts[i] = await getSubAccounts(allEmails[i].email); //getting unAssigned subAccounts of one ith email
             if(allSubAccounts[i].length !== 0){
                 adminsHaveSubAccounts[i] = allEmails[i];
             }
@@ -413,11 +460,9 @@ app.get('/get-all-mappings', async(req, res)=>{
 app.post('/update-mappings-account', (req, res)=>{
 
     MAPPINGS_MODEL.find({username: req.body.username}).then((d)=>{
-
         if(d.length !== 0){ //means user found
 
             ADMIN_MODEL.find({email: req.body.mainAccount}, {password:1, _id:0}).then(async(data)=>{
-                
                 if(data.length !== 0){  //means main acc exist
                     let sub = new Array();
                     sub = await getSubAccounts(req.body.mainAccount);
@@ -436,7 +481,6 @@ app.post('/update-mappings-account', (req, res)=>{
                 else{
                     return res.status(404).send('main account does not exist');      
                 }
-
             }).catch((e)=>{
                 return res.status(404).send(e);        
             });
@@ -461,11 +505,57 @@ app.delete('/remove-mapping',(req, res)=>{
             return res.status(404).send('User not found')      
         }
     }).catch((e)=>{
-        console.log(e);
-        
+        return res.status(404).send(e); 
     });
 });
 
+//21 === adding/updating ip -> req: username, prevIp, newIp, enabled
+app.post('/add-update-ip', async (req,res)=>{
+
+    //check ip does not exist already for the username provided
+    let userIps = await USER_IP_MODEL.find({username: req.body.username}, {ip:1, _id:0});        
+    function checkIps(){
+        return userIps.some(function(element){
+            return element.ip === req.body.newIp;
+        });
+    };
+    //1. check if user exists in USER_MODEL
+    let user = await USER_MODEL.findOne({username: req.body.username});
+    if(user){                
+        if(req.body.prevIp == 'null' && req.body.newIp != 'null'){ // case Add -> add new user ip                        
+            if(!checkIps()){ //if ip already doesnot exists                
+                var user_ip = new USER_IP_MODEL({
+                    username: req.body.username,
+                    ip: req.body.newIp,
+                    enabled: req.body.enabled
+                });
+                let savedData = await user_ip.save();    
+                return res.send(savedData);
+            }
+            return res.status(404).send('ip already assigned');
+        }
+        else if(req.body.prevIp == req.body.newIp){                            // case Update -> 1. update only status            
+            let updatedStatus = await USER_IP_MODEL.findOneAndUpdate({username:req.body.username, ip: req.body.prevIp}, {$set: {enabled:req.body.enabled}}, {new:true});            
+            if(updatedStatus){
+                return res.send(updatedStatus);
+            }
+            return res.status(404).send('user not found with given ip!!');
+        }
+        else if(req.body.prevIp != 'null' && req.body.prevIp != req.body.newIp){  // case update -> 2. updating ip
+            if(!checkIps()){
+                let updatedIp = await USER_IP_MODEL.findOneAndUpdate({username:req.body.username, ip:req.body.prevIp}, {$set: {ip:req.body.newIp}}, {new: true});
+                if(updatedIp){
+                    return res.send(updatedIp);
+                }
+                return res.status(404).send('user not found with given ip!!');
+            }
+            return res.status(404).send('ip already assigned'); 
+        }  
+    }
+    else{
+        return res.status(404).send('user not found!!');
+    }
+});
 //========================================================
 app.listen(3000, ()=>{
     console.log(`listening on port: 3000`);
