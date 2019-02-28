@@ -126,27 +126,47 @@ app.post('/signup', (req, res)=>{
     });
 });
 
-//2 === user login -> req: username, password
+//2 === user/admin login -> req: username/email, password
 app.get('/login', (req, res)=>{
     
-    USER_MODEL.find({username: req.body.username},{password:1}).then((data)=>{
+    if(req.body.hasOwnProperty('email')){
+        ADMIN_MODEL.find({email: req.body.email},{password:1}).then((data)=>{
 
-        let hashedPassword = data[0].password;
-        //comparing password
-        bcrypt.compare(req.body.password, hashedPassword).then((result)=>{
-            if(result){
-                res.send('login');
-            }
-            else{
-                res.status(404).send('incorrect password');
-            }
+            let hashedPassword = data[0].password;
+            //comparing password
+            bcrypt.compare(req.body.password, hashedPassword).then((result)=>{
+                if(result){
+                    res.send({status: 'logged in', admin: req.body.email});
+                }
+                else{
+                    res.status(404).send('incorrect password');
+                }
+            }).catch((e)=>{
+                res.status(404).send('decrypting error');
+            });
         }).catch((e)=>{
-            res.status(404).send('decrypting error');
-        });
-    }).catch((e)=>{
-        res.status(404).send('user not found');
-    });
+            res.status(404).send('admin not found');
+        });    
+    }
+    else if(req.body.hasOwnProperty('username')){
+        USER_MODEL.find({username: req.body.username},{password:1}).then((data)=>{
 
+            let hashedPassword = data[0].password;
+            //comparing password
+            bcrypt.compare(req.body.password, hashedPassword).then((result)=>{
+                if(result){
+                    res.send({status: 'logged in', user: req.body.username});
+                }
+                else{
+                    res.status(404).send('incorrect password');
+                }
+            }).catch((e)=>{
+                res.status(404).send('decrypting error');
+            });
+        }).catch((e)=>{
+            res.status(404).send('user not found');
+        });    
+    }
 });
 
 //3 === Get user profile -> req: username, show all fields
