@@ -1,7 +1,9 @@
 const mongoose = require('mongoose');
 const validator = require('validator');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
+var secret = "crm420";
 var UserSchema = new mongoose.Schema({
     status: {
         type: String,
@@ -104,8 +106,66 @@ var UserSchema = new mongoose.Schema({
     skypeId: {
         type: String,
         default: null
-    }
+    },
+    tokens: [{
+      access: {
+        type: String,
+        required: true
+      },
+      token: {
+        type: String,
+        required: true
+      }
+    }]
+  
   });
+  UserSchema.methods.generateAuthToken = function () {
+    var user = this;
+    var access = 'auth';
+    var token = jwt.sign({_id: user._id.toHexString(), access}, secret).toString();
+  
+    user.tokens.push({access, token});
+    return user.save().then(() => {
+      return token;
+    });
+  };
+  
+  UserSchema.statics.findByToken = function (token) {
+    var User = this;
+    var decoded;
+  
+    try {
+      decoded = jwt.verify(token, secret);
+    } catch (e) {
+      return Promise.reject();
+    }
+  
+    return User.findOne({
+      '_id': decoded._id,
+      'tokens.token': token,
+      'tokens.access': 'auth'
+    });
+  };
+
+  UserSchema.statics.findByCredentials = function (username, password) {
+    var User = this;
+    return User.findOne({username}).then((user) => {
+      if (!user) {
+        return Promise.reject();
+      }
+  
+      return new Promise((resolve, reject) => {
+        // Use bcrypt.compare to compare password and user.password
+        bcrypt.compare(password, user.password, (err, res) => {
+          if (res) {
+            resolve(user);
+          } else {
+            reject();
+          }
+        });
+      });
+    });
+  };
 
   //middleware for password hashing before dumping to db
   UserSchema.pre('save', function (next){
