@@ -77,6 +77,7 @@ app.post('/signup', (req, res) => {
             text: doc.toString()
         });
         //===================
+
         return user.generateAuthToken();
     }).then((token) => {
         res.header('x-auth', token).send(user);
@@ -90,18 +91,34 @@ app.post('/signup', (req, res) => {
 app.get('/login', (req, res) => {
 
     if(req.body.hasOwnProperty('email')){
-        ADMIN_MODEL.findByCredentials(req.body.email, req.body.password).then((admin) => {
-            return admin.generateAuthToken().then((token) => {
-              res.header('x-auth', token).send(admin);
+        ADMIN_MODEL.findByCredentials(req.body.email, req.body.password).then(async (admin) => {
+            //deleting all previous tokens from db
+            let afterDeleted = await ADMIN_MODEL.findOneAndUpdate({email: admin.email}, {$set: {tokens: []}}, {new: true});
+        
+            return afterDeleted.generateAuthToken().then((token) => { //generating auth-token and saving in db
+              res.header('x-auth', token).send({
+                  email: afterDeleted.email,
+                  _id: afterDeleted._id,
+                  token: afterDeleted.tokens[0].token,
+                  role: afterDeleted.role
+              });
             });
         }).catch((e) => {
             res.status(404).send(e);
         });    
     }
     else if(req.body.hasOwnProperty('username')){
-        USER_MODEL.findByCredentials(req.body.username, req.body.password).then((user) => {
-            return user.generateAuthToken().then((token) => {
-              res.header('x-auth', token).send(user);
+        USER_MODEL.findByCredentials(req.body.username, req.body.password).then(async(user) => {
+
+            let afterDeleted = await USER_MODEL.findOneAndUpdate({username: user.username}, {$set: {tokens: []}}, {new: true});
+
+            return afterDeleted.generateAuthToken().then((token) => {
+              res.header('x-auth', token).send({
+                username: afterDeleted.username,
+                _id: afterDeleted._id,
+                token: afterDeleted.tokens[0].token,
+                role: afterDeleted.role
+                });
             });
         }).catch((e) => {
             res.status(404).send(e);
@@ -110,7 +127,7 @@ app.get('/login', (req, res) => {
 });
 
 //3 === Get user profile -> req: username, show all fields
-app.get('/get-user-profile/:username', (req, res) => {
+app.get('/get-user-profile/:username', authenticateUser, (req, res) => {
 
     USER_MODEL.find({ username: req.params.username }).then((user_data) => {
         res.send(user_data);

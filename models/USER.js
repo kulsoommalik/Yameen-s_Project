@@ -5,6 +5,10 @@ const jwt = require('jsonwebtoken');
 
 var secret = "crm420";
 var UserSchema = new mongoose.Schema({
+    role: {
+      type: String,
+      default: 'User'
+    },
     status: {
         type: String,
         default: 'DISABLED'
@@ -122,7 +126,7 @@ var UserSchema = new mongoose.Schema({
   UserSchema.methods.generateAuthToken = function () {
     var user = this;
     var access = 'auth';
-    var token = jwt.sign({_id: user._id.toHexString(), access}, secret).toString();
+    var token = jwt.sign({_id: user._id.toHexString(), access}, secret, {expiresIn: 3000}).toString();
   
     user.tokens.push({access, token});
     return user.save().then(() => {

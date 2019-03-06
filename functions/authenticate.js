@@ -23,6 +23,9 @@ var authenticateAdmin = (req,res,next)=>{
        if(!admin){
             return Promise.reject();
         }
+        //deleting last token from array
+        //await ADMIN_MODEL.findOneAndUpdate({'tokens.token': token}, {$pull: {tokens: {token: token}}});
+        //token = await admin.generateAuthToken();
         req.user = admin;
         req.token = token;
         next();

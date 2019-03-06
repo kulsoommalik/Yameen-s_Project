@@ -5,6 +5,10 @@ const jwt = require('jsonwebtoken');
 
 var secret = "crm420";
 var adminSchema = mongoose.Schema({
+    role: {
+      type: String,
+      default: 'Admin'
+    },
     email: {
         type: String,
         required: true,
@@ -36,8 +40,7 @@ var adminSchema = mongoose.Schema({
 adminSchema.methods.generateAuthToken = function () {
     var user = this;
     var access = 'auth';
-    //var token = jwt.sign(user, SECRET, { expiresIn: 300 }) 
-    var token = jwt.sign({_id: user._id.toHexString(), access}, secret).toString();
+    var token = jwt.sign({_id: user._id.toHexString(), access}, secret, {expiresIn: 3000}).toString();
   
     user.tokens.push({access, token});
     return user.save().then(() => {
