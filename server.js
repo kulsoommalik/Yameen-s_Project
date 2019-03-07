@@ -30,7 +30,7 @@ app.use(bodyParser.urlencoded({
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers",
-        "Origin , X-Requested-With , Content-Type , Accept , Authorization"
+        "Origin , X-Requested-With , Content-Type , Accept , Authorization, x-auth"
     );
     if (req.method === 'OPTIONS') {
         res.header("Access-Control-Allow-Methods", 'PUT , POST , PATCH , DELETE , GET');
@@ -139,7 +139,7 @@ app.get('/get-user-profile/:username', authenticateUser, (req, res) => {
 //4 === Get all users -> nothing given , show few fields
 app.get('/get-all-users', (req, res) => {
 
-    USER_MODEL.find({}, { username: 1, password: 1 }).then((user_data) => {
+    USER_MODEL.find({}, { username: 1, password: 1, status:1 }).then((user_data) => {
         res.send(user_data);
     }).catch((e) => {
         res.status(400).send(e);
@@ -171,6 +171,7 @@ app.post('/confirm-email', (req, res) => {
 });
 
 //6 === updating user fields -> req: username, updated fields
+//username parse from token
 app.post('/update-user/:username', (req, res) => {
     console.log("Body", req.body);
     USER_MODEL.findOneAndUpdate({ username: req.params.username }, { $set: req.body }, { new: true }).then((data) => {
@@ -199,7 +200,6 @@ app.post('/update-user/:username', (req, res) => {
             } else if (req.body.balance <= 0) {
                 USER_MODEL.findOneAndUpdate({ username: req.body.username }, { $set: { blockIP: true } }).exec();
             }
-            //delete req.body.username;
             delete req.body.balance;
         }
         //seding email when other fields changed
@@ -239,6 +239,7 @@ app.post('/admin-signup', (req, res) => {
 });
 
 //8 ===  adding sub account -> req: email, subaccount name
+//admin email parse from token
 app.post('/add-sub-account', authenticateAdmin ,(req, res) => {
 
     let isPresent = false;
@@ -268,6 +269,7 @@ app.post('/add-sub-account', authenticateAdmin ,(req, res) => {
 
 //9 === Removing sub account -> req: email, subaccount name
 //delete cahnged to post
+//admin email parse from token
 app.post('/remove-sub-account',authenticateAdmin ,(req, res) => {
 
     ADMIN_MODEL.findOneAndUpdate({ email: req.body.email }, { $pull: { subAccount: req.body.subAccount } }, { new: true }).then((data) => {
@@ -289,6 +291,7 @@ app.post('/remove-admin',authenticateAdmin ,(req, res) => {
 });
 
 //11 === Show all main accounts
+//ask yameen
 app.get('/get-all-main-accounts', (req, res) => {
 
     ADMIN_MODEL.find().then((data) => {
@@ -399,10 +402,21 @@ app.post('/map-user', (req, res) => {
 //15 === get unassigned sub-accounts -> req: mainAccount //gives available subaccounts of given email
 app.get('/get-unassigned-subAccounts', async(req, res) => {
 
+    //send only subaccoounts
+    //email pasre from token
     res.send(await getSubAccounts(req.body.mainAccount));
 });
 
-//16 === get main-accounts having unassigned sub-accounts
+//16 === all sub accounts of correspond to email
+app.get('/get-allSubAccounts-email/:email', async(req, res) => {
+    console.log('emai', req.params.email);
+    data = await getData('main_accounts', { email: req.params.email }, {});
+    console.log(data[0].subAccount);
+    res.send(data[0].subAccount);
+});
+
+
+//17 === get main-accounts having unassigned sub-accounts
 app.get('/get-mainAccounts-with-subAccounts', (req, res) => {
 
     ADMIN_MODEL.find({}, { email: 1, _id: 0 }).then(async(allEmails) => {
@@ -425,12 +439,12 @@ app.get('/get-mainAccounts-with-subAccounts', (req, res) => {
     });
 });
 
-//17 === get all Mappings
+//18 === get all Mappings
 app.get('/get-all-mappings', async(req, res) => {
     res.send(await getData('mappings', {}, {}));
 });
 
-//18 === change mappings account -> req: username , main acc, sub acc
+//19 === change mappings account -> req: username , main acc, sub acc
 app.post('/update-mappings-account', (req, res) => {
 
     MAPPINGS_MODEL.find({ username: req.body.username }).then((d) => {
@@ -464,7 +478,7 @@ app.post('/update-mappings-account', (req, res) => {
     });
 });
 
-//19 === Remove mapping -> req: username
+//20 === Remove mapping -> req: username
 app.delete('/remove-mapping', (req, res) => {
 
     MAPPINGS_MODEL.find({ username: req.body.username }).then((d) => {
@@ -479,7 +493,7 @@ app.delete('/remove-mapping', (req, res) => {
     });
 });
 
-//20 === adding/updating ip -> req: username, prevIp, newIp, enabled
+//21 === adding/updating ip -> req: username, prevIp, newIp, enabled
 app.post('/add-update-ip', async(req, res) => {
 
     //check ip does not exist already for the username provided
@@ -537,12 +551,12 @@ app.post('/add-update-ip', async(req, res) => {
     }
 });
 
-//21 === getting all ips of user -> args: username
+//22 === getting all ips of user -> args: username
 app.get('/get-user-ips/:username', async(req, res) => {
     return res.send(await getData('user_ips', {username:req.params.username}, {}));
 });
 
-//22 === getting all ips of all users -> args: username
+//23 === getting all ips of all users -> args: username
 app.get('/get-all-users-ips/:username', async(req, res) => {
     return res.send(await getData('user_ips', {}, {}));
 });
@@ -563,7 +577,7 @@ var fileUpload = multer({
     storage: storage
 }).single('file');
 
-//23 === uploading csv/pdf file -> req: filename, filepath
+//24 === uploading csv/pdf file -> req: filename, filepath
 app.post('/upload-file', (req, res) => {
     
     console.log('files: ',req.body);
@@ -575,12 +589,12 @@ app.post('/upload-file', (req, res) => {
     });
 });
 
-//24 === show all rate list files
+//25 === show all rate list files
 app.get('/show-rate-list', async (req, res) =>{
     return res.send(await getData('rate_list', {}, {}));
 });
 
-//25 === download file
+//26 === download file
 app.get('/download-rate-list', (req, res) => {
 
 });
