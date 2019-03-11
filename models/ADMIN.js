@@ -3,7 +3,7 @@ const validator = require('validator');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-var secret = "crm420";
+const secret = "crm420";
 var adminSchema = mongoose.Schema({
     role: {
       type: String,
@@ -24,7 +24,6 @@ var adminSchema = mongoose.Schema({
         required: true,
         minLength: 6
     },
-    subAccount: [String],
     tokens: [{
         access: {
           type: String,
@@ -40,7 +39,7 @@ var adminSchema = mongoose.Schema({
 adminSchema.methods.generateAuthToken = function () {
     var user = this;
     var access = 'auth';
-    var token = jwt.sign({_id: user._id.toHexString(), access}, secret, {expiresIn: 3000}).toString();
+    var token = jwt.sign({_id: user._id.toHexString(),email: user.email, access}, secret, {expiresIn: 3000}).toString();
   
     user.tokens.push({access, token});
     return user.save().then(() => {
@@ -53,7 +52,7 @@ adminSchema.methods.generateAuthToken = function () {
     var decoded;
   
     try {
-      decoded = jwt.verify(token, secret);
+      decoded = jwt.verify(token, secret);      
     } catch (e) {
       return Promise.reject();
     }
@@ -102,6 +101,6 @@ adminSchema.pre('save',function (next){
     }
 });
 
-var ADMIN_MODEL = mongoose.model('main_accounts', adminSchema);
+var ADMIN_MODEL = mongoose.model('admin_accounts', adminSchema);
 module.exports = {ADMIN_MODEL};
 

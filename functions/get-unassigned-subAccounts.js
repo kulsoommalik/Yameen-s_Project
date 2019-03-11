@@ -1,25 +1,36 @@
 const {mongoose} = require('./../mongoose');
-const {ADMIN_MODEL} = require('./../models/ADMINS');
+const {MAIN_ACC_MODEL} = require('../models/MAIN_ACC');
 const {MAPPINGS_MODEL} = require('./../models/MAPPINGS');
 
-async function getSubAccounts(adminEmail){
+async function getSubAccounts(mainAccountEmail){
 
     let myPromise = ()=>{
         return new Promise((resolve, reject)=>{
-            ADMIN_MODEL.find({email: adminEmail},{subAccount:1, _id:0}).then((data)=>{
-                //console.log('data: ',data); //all sub accounts of given main account
+            MAIN_ACC_MODEL.findOne({email: mainAccountEmail},{subAccount:1, _id:0}).then((data)=>{
                 
-                MAPPINGS_MODEL.find({mainAccount: adminEmail}, {subAccount:1, _id:0}).then((result)=>{
-                    let list = data[0].subAccount;
-                    for(let i=0; i<result.length; i++){
-                        list.splice( list.indexOf(result[i].subAccount), 1 );
-                    }
-                    //console.log('unAssigned sub accounts: ',list);
-                    resolve(list);
-                }).catch(e=>{
-                    reject(e);
-                });
-            }).catch(e=>{
+                if(data.subAccount.length == 0){
+                    resolve(data.subAccount);
+                }
+                else if(data != null && data.subAccount.length > 0){
+                    //console.log('data: ',data); //all sub accounts of given main account
+                    MAPPINGS_MODEL.find({mainAccount: mainAccountEmail}).then((result)=>{
+                        //console.log(result);
+                                            
+                        let list = data.subAccount; //list of all subAccounts
+                        for(let i=0; i<result.length; i++){
+                            list.splice( list.indexOf(result[i].subAccount), 1 );
+                        }
+                        //console.log('unAssigned sub accounts: ',list);
+                        resolve(list);
+            
+                    }).catch( e => {
+                        reject(e);
+                    });    
+                }
+                else{
+                    reject('Email not found in main accounts');
+                }
+            }).catch( e => {
                 reject(e);
             });
         });

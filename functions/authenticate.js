@@ -1,5 +1,5 @@
 const {USER_MODEL} = require('./../models/USER');
-const {ADMIN_MODEL} = require('./../models/ADMINS');
+const {ADMIN_MODEL} = require('../models/ADMIN');
 
 //middleware for authenitication
 var authenticateUser = (req,res,next)=>{

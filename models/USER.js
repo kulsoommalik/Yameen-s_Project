@@ -3,7 +3,7 @@ const validator = require('validator');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-var secret = "crm420";
+const secret = "crm420";
 var UserSchema = new mongoose.Schema({
     role: {
       type: String,
@@ -126,7 +126,7 @@ var UserSchema = new mongoose.Schema({
   UserSchema.methods.generateAuthToken = function () {
     var user = this;
     var access = 'auth';
-    var token = jwt.sign({_id: user._id.toHexString(), access}, secret, {expiresIn: 3000}).toString();
+    var token = jwt.sign({_id: user._id.toHexString(), username: user.username, access}, secret, {expiresIn: 3000}).toString();
   
     user.tokens.push({access, token});
     return user.save().then(() => {

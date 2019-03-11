@@ -10,7 +10,8 @@ const upload = require('express-fileupload');
 const { mongoose } = require('./mongoose');
 
 const { USER_MODEL } = require('./models/USER');
-const { ADMIN_MODEL } = require('./models/ADMINS');
+const { ADMIN_MODEL } = require('./models/ADMIN');
+const { MAIN_ACC_MODEL } = require('./models/MAIN_ACC');
 const { RATE_LIST_MODEL } = require('./models/RATE_LIST');
 const { STATS_MODEL } = require('./models/STATS');
 const { MAPPINGS_MODEL } = require('./models/MAPPINGS');
@@ -20,7 +21,9 @@ const { sendEmail } = require('./functions/send-email');
 const { getData } = require('./functions/get-data');
 const { getSubAccounts } = require('./functions/get-unassigned-subAccounts');
 const {authenticateUser, authenticateAdmin} = require('./functions/authenticate');
-//const {authenticateAdmin} = require('./functions/authenticateAdmin');
+const {decodeToken} = require('./functions/decodeToken');
+
+require('./seed');
 
 const app = express();
 app.use(bodyParser.json());
@@ -66,6 +69,9 @@ app.post('/signup', (req, res) => {
         skypeId: req.body.skypeId
     });
     user.save().then((doc) => {
+        console.log(typeof(doc));
+        
+        
         //sendind email to admin work
         sendEmail({
             user: 'kikis.art22@gmail.com',
@@ -89,10 +95,10 @@ app.post('/signup', (req, res) => {
 
 //2 === user/admin login -> req: username/email, password
 app.get('/login', (req, res) => {
-
+        
     if(req.body.hasOwnProperty('email')){
         ADMIN_MODEL.findByCredentials(req.body.email, req.body.password).then(async (admin) => {
-            //deleting all previous tokens from db
+            //deleting all previous tokens from db            
             let afterDeleted = await ADMIN_MODEL.findOneAndUpdate({email: admin.email}, {$set: {tokens: []}}, {new: true});
         
             return afterDeleted.generateAuthToken().then((token) => { //generating auth-token and saving in db
@@ -126,8 +132,8 @@ app.get('/login', (req, res) => {
     }
 });
 
-//3 === Get user profile -> req: username, show all fields
-app.get('/get-user-profile/:username', authenticateUser, (req, res) => {
+//3 === FOR ADMIN -> Get user profile -> req: username, show all fields
+app.get('/get-user-profile-admin/:username', authenticateAdmin, (req, res) => {
 
     USER_MODEL.find({ username: req.params.username }).then((user_data) => {
         res.send(user_data);
@@ -136,8 +142,26 @@ app.get('/get-user-profile/:username', authenticateUser, (req, res) => {
     });
 });
 
-//4 === Get all users -> nothing given , show few fields
-app.get('/get-all-users', (req, res) => {
+//4 === FOR USER -> get user profile
+app.get('/get-user-profile-user', authenticateUser, (req, res) => {
+
+    let userName;
+    decodeToken(req.header('x-auth')).then((decodedData)=>{
+        userName = decodedData.username;
+
+        USER_MODEL.find({ username: userName }).then((user_data) => {
+            res.send(user_data);
+        }).catch((e) => {
+            res.status(400).send(e);
+        });
+
+    }).catch((e)=>{
+        return res.status(404).send('Invalid auth-token');
+    });    
+});
+
+//5 === Get all users -> nothing given , show few fields
+app.get('/get-all-users', authenticateAdmin,(req, res) => {
 
     USER_MODEL.find({}, { username: 1, password: 1, status:1 }).then((user_data) => {
         res.send(user_data);
@@ -146,7 +170,7 @@ app.get('/get-all-users', (req, res) => {
     });
 });
 
-//5 === Seding confirmation email to user and updating status -> req: username
+//6 === Seding confirmation email to user and updating status -> req: username
 app.post('/confirm-email', (req, res) => {
 
     USER_MODEL.find({ username: req.body.username }, { noticeEmail: 1 }).then((data) => {
@@ -170,59 +194,72 @@ app.post('/confirm-email', (req, res) => {
     });
 });
 
-//6 === updating user fields -> req: username, updated fields
-//username parse from token
-app.post('/update-user/:username', (req, res) => {
-    console.log("Body", req.body);
-    USER_MODEL.findOneAndUpdate({ username: req.params.username }, { $set: req.body }, { new: true }).then((data) => {
-        let user = req.params.username;
+//7 === updating user fields -> req: username, updated fields
+//for admin and user (make changes if needed)
+app.post('/update-user', authenticateUser, (req, res) => {
+    let userName;
+    decodeToken(req.header('x-auth')).then((decodedData)=>{
+        userName = decodedData.username;
 
-        if (req.body.hasOwnProperty('balance')) {
-            let previousBalance;
-            USER_MODEL.find({ username: req.params.username }, { balance: 1 }).then((bal) => {
-                previousBalance = bal[0].balance;
-            }).catch((e) => {
-                console.log(e);
-            });
-
-            sendEmail({
-                user: 'kikis.art22@gmail.com',
-                pass: '<Karachi90!!1/>'
-            }, {
-                from: '"Kikis art" kikis.art22@gmail.com',
-                to: data.balanceEmail,
-                subject: 'Balance Changed',
-                text: `hey !! ${req.body.username} your balance has been changed from ${previousBalance} to ${req.body.balance}`
-            });
-
-            if (req.body.balance > 0) {
-                USER_MODEL.findOneAndUpdate({ username: req.body.username }, { $set: { blockIP: false } }).exec();
-            } else if (req.body.balance <= 0) {
-                USER_MODEL.findOneAndUpdate({ username: req.body.username }, { $set: { blockIP: true } }).exec();
+        USER_MODEL.findOneAndUpdate({ username: userName }, { $set: req.body }, { new: true }).then((data) => {
+            // let user = req.params.username;
+    
+            if (req.body.hasOwnProperty('balance')) {
+                //finding previous balance to send in email
+                let previousBalance;
+                USER_MODEL.find({ username: userName }, { balance: 1 }).then((bal) => {
+                    previousBalance = bal[0].balance;
+                }).catch((e) => {
+                    return res.status(404).send(e);
+                });
+    
+                sendEmail({
+                    user: 'kikis.art22@gmail.com',
+                    pass: '<Karachi90!!1/>'
+                }, {
+                    from: '"Kikis art" kikis.art22@gmail.com',
+                    to: data.balanceEmail,
+                    subject: 'Balance Changed',
+                    text: `your balance has been changed from ${previousBalance} to ${req.body.balance}`
+                });
+    
+                if (req.body.balance > 0) {
+                    USER_MODEL.findOneAndUpdate({ username: userName }, { $set: { blockIP: false } }).exec();
+                } else if (req.body.balance <= 0) {
+                    USER_MODEL.findOneAndUpdate({ username: userName }, { $set: { blockIP: true } }).exec();
+                }
+                delete req.body.balance;
             }
-            delete req.body.balance;
-        }
-        //seding email when other fields changed
-        if (Object.keys(req.body).length > 0) {
-            let reqString = req.body.toString();
-            sendEmail({
-                user: 'kikis.art22@gmail.com',
-                pass: '<Karachi90!!1/>'
-            }, {
-                from: '"Kikis art" kikis.art22@gmail.com',
-                to: data.noticeEmail,
-                subject: 'Fields Changed',
-                text: `hey !! ${user} following fields has been changed!!! ${reqString}`
-            });
-        }
-        res.send({ data });
+            let myObj = req.body;
+            console.log(typeof(myObj));
 
-    }).catch((e) => {
-        res.status(404).send();
+            
+            //seding email when other fields changed
+            if (Object.keys(req.body).length > 0) {
+                console.log(typeof(req.body));
+
+                sendEmail({
+                    user: 'kikis.art22@gmail.com',
+                    pass: '<Karachi90!!1/>'
+                }, {
+                    from: '"Kikis art" kikis.art22@gmail.com',
+                    to: data.noticeEmail,
+                    subject: 'Fields Changed',
+                    text: `fields has been changed!!! ${JSON.stringify(myObj)}`
+                });
+            }
+            return res.send({ data });
+    
+        }).catch((e) => {
+            return res.status(404).send();
+        });
+
+    }).catch((e)=>{
+        return res.status(404).send('Invalid auth-token');
     });
 });
 
-//7 === admin signup -> req: email, pass
+//8 === admin signup -> req: email, pass
 app.post('/admin-signup', (req, res) => {
 
     let admin = new ADMIN_MODEL({
@@ -238,76 +275,95 @@ app.post('/admin-signup', (req, res) => {
     })
 });
 
-//8 ===  adding sub account -> req: email, subaccount name
-//admin email parse from token
+//9 ===  any admin can add subaccount in any main account -> req: mainAcc, subaccount name
 app.post('/add-sub-account', authenticateAdmin ,(req, res) => {
 
-    let isPresent = false;
-    //checking if subAccount is unique
-    ADMIN_MODEL.findOne({ email: req.body.email }, { subAccount: 1 }).then(async(data) => {
-
-        for (var i = 0; i < data.subAccount.length; i++) {
-            if (req.body.subAccount === data.subAccount[i]) {
-                isPresent = true;
-                break;
+        let isPresent = false;
+        //checking if subAccount is unique
+        MAIN_ACC_MODEL.findOne({ email: req.body.mainAccount }, { subAccount: 1 }).then(async(data) => {
+    
+            for (var i = 0; i < data.subAccount.length; i++) {
+                if (req.body.subAccount === data.subAccount[i]) {
+                    isPresent = true;
+                    break;
+                }
             }
-        }
-
-        if (!isPresent) {
-            ADMIN_MODEL.findOneAndUpdate({ email: req.body.email }, { $push: { subAccount: req.body.subAccount } }, { new: true }).then((doc) => {
-                return res.send({ status: 'updated', data: doc });
-            }).catch((e) => {
-                return res.status(404).send(e);
-            });
-        } else {
-            res.status(404).send('subAccount alreay exist');
-        }
-    }).catch((e) => {
-        res.status(404).send(e);
-    });
+    
+            if (!isPresent) {
+                MAIN_ACC_MODEL.findOneAndUpdate({ email: req.body.mainAccount }, { $push: { subAccount: req.body.subAccount } }, { new: true }).then((doc) => {
+                    return res.send(doc.subAccount);
+                }).catch((e) => {
+                    return res.status(404).send(e);
+                });
+            } else {
+                return res.status(404).send('subAccount alreay exist');
+            }
+        }).catch((e) => {
+            return res.status(404).send('main account not found!!!');
+        });
 });
 
-//9 === Removing sub account -> req: email, subaccount name
-//delete cahnged to post
-//admin email parse from token
+//10 === Removing sub account -> req: email(of mainAcc), subaccount name
 app.post('/remove-sub-account',authenticateAdmin ,(req, res) => {
 
-    ADMIN_MODEL.findOneAndUpdate({ email: req.body.email }, { $pull: { subAccount: req.body.subAccount } }, { new: true }).then((data) => {
-        res.send(data);
+    // ---- subaccount not found error not handled ----
+    MAIN_ACC_MODEL.findOneAndUpdate({ email: req.body.email }, { $pull: { subAccount: req.body.subAccount } }, { new: true }).then((data) => {
+        if(!data){
+            return res.status(404).send('main account not found!')
+        }
+        return res.send(data);
     }).catch((e) => {
         res.status(404).send(e);
     });
 });
 
-//10 === Remove admin -> req: email
-//delete changed to post
-app.post('/remove-admin',authenticateAdmin ,(req, res) => {
+//11 === Add mainACC -> req: email, pass
+app.post('/add-main-account', authenticateAdmin, (req, res)=>{
 
-    ADMIN_MODEL.findOneAndRemove({ email: req.body.email }).then((data) => {
-        res.send(data);
+    let ma = new MAIN_ACC_MODEL({
+        email: req.body.email,
+        password: req.body.password
+    });
+    ma.save().then((data)=>{
+        return res.send(data);
+    }).catch((e)=>{
+        return res.status(404).send(e);
+    });
+
+});
+
+//12 === Remove mainACC -> req: email(of mainAcc)
+app.post('/remove-main-account',authenticateAdmin ,(req, res) => {
+
+    MAIN_ACC_MODEL.findOneAndRemove({ email: req.body.email }).then((data) => {
+        if(!data){
+            return res.status(404).send('main account not found');
+        }
+        return res.send({status: 'removed', mainAccount: data.email});
     }).catch((e) => {
-        res.status(404).send(e);
+        return res.status(404).send(e);
     });
 });
 
-//11 === Show all main accounts
-//ask yameen
-app.get('/get-all-main-accounts', (req, res) => {
+//13 === update main-account password 
 
-    ADMIN_MODEL.find().then((data) => {
-        res.send(data);
-    }).catch((e) => {
-        res.status(404).send(e);
-    });
+
+
+
+
+//14 === Show all main accounts
+app.get('/get-all-main-accounts', authenticateAdmin, async (req, res) => {
+
+    return res.send( await getData('main_accounts', {}, {}) );
 });
 
-//12 === Show stats -> req: username
+//15 === Show stats of specific user -> req: username
 app.get('/get-stats', async(req, res) => {
 
-    res.send(await getData('stats', { username: req.body.username }, {}));
+    return res.send(await getData('stats', { username: req.body.username }, {}));
 });
 
-//13 === Forgot password -> req: newPassword, retypePassword, collectionName, username/email
+//16 === Forgot password -> req: newPassword, retypePassword, collectionName, username/email
 app.post('/forgot-password', async(req, res) => {
 
     if (req.body.newPassword !== req.body.retypePassword) {
@@ -341,7 +397,7 @@ app.post('/forgot-password', async(req, res) => {
                 res.status(404).send(e);
             });
     }
-    if (req.body.collectionName === "main_accounts") {
+    if (req.body.collectionName === "admin_accounts") {
         ADMIN_MODEL.findOneAndUpdate({ email: req.body.email }, { $set: { password: hashedPass } }, { new: true })
             .then(data => {
                 res.send(data);
@@ -350,21 +406,21 @@ app.post('/forgot-password', async(req, res) => {
             });
     }
 });
-//14 === Map user -> req: username(user), mainAccount(admin email), subAccount
+//17 === Map user -> req: username(of user), mainAccount(email), subAccount
 app.post('/map-user', (req, res) => {
 
     //user exists in USER_MODEL
     USER_MODEL.find({ username: req.body.username }).then((d) => {
 
-        if (d.length !== 0) {
+        if (d.length !== 0) { //user found
             MAPPINGS_MODEL.find({ username: req.body.username }).then((d) => {
 
                 if (d.length === 0) { //user not mapped
                     //if password is found that means mainAccount exists
-                    ADMIN_MODEL.findOne({ email: req.body.mainAccount }, { password: 1, subAccount: 1, _id: 0 }).then(async(data) => {
+                    MAIN_ACC_MODEL.findOne({ email: req.body.mainAccount }, { password: 1, subAccount: 1, _id: 0 }).then(async(data) => {
                         //check if subAccount is valid and subAccount is not already assigned
                         let sub = new Array();
-                        sub = await getSubAccounts(req.body.mainAccount);
+                        sub = await getSubAccounts(req.body.mainAccount); //getting unassigned sub accounts
 
                         if (sub.includes(req.body.subAccount)) { // if subAccount is from unassigned subaccounts  
                             //mapping new user object 
@@ -399,31 +455,31 @@ app.post('/map-user', (req, res) => {
 
 });
 
-//15 === get unassigned sub-accounts -> req: mainAccount //gives available subaccounts of given email
-app.get('/get-unassigned-subAccounts', async(req, res) => {
+//18 === get unassigned sub-accounts -> req: mainAccount //gives available subaccounts of given email
+app.get('/get-unassigned-subAccounts/:email', (req, res) => {
 
-    //send only subaccoounts
-    //email pasre from token
-    res.send(await getSubAccounts(req.body.mainAccount));
+    getSubAccounts(req.params.email).then((Data)=>{
+        return res.send(Data);
+    }).catch((e)=>{
+        return res.status(404).send(e);
+    });
 });
 
-//16 === all sub accounts of correspond to email
+//19 === get all sub accounts correspond to email -> params: email
 app.get('/get-allSubAccounts-email/:email', async(req, res) => {
-    console.log('emai', req.params.email);
     data = await getData('main_accounts', { email: req.params.email }, {});
-    console.log(data[0].subAccount);
-    res.send(data[0].subAccount);
+    return res.send(data[0].subAccount);
 });
 
 
-//17 === get main-accounts having unassigned sub-accounts
+//20 === get main-accounts having unassigned sub-accounts
 app.get('/get-mainAccounts-with-subAccounts', (req, res) => {
 
-    ADMIN_MODEL.find({}, { email: 1, _id: 0 }).then(async(allEmails) => {
+    MAIN_ACC_MODEL.find({}, { email: 1, _id: 0 }).then(async(allEmails) => {
         //console.log('allEmails', allEmails);  //all emails of admins
 
         var allSubAccounts = new Array();
-        var adminsHaveSubAccounts = new Array();
+        var adminsHaveSubAccounts = new Array(); //admins means main_accs
 
         for (var i = 0; i < allEmails.length; i++) {
             allSubAccounts[i] = await getSubAccounts(allEmails[i].email); //getting unAssigned subAccounts of one ith email
@@ -431,54 +487,58 @@ app.get('/get-mainAccounts-with-subAccounts', (req, res) => {
                 adminsHaveSubAccounts[i] = allEmails[i];
             }
         }
-        //console.log('admins having sub accs:',adminsHaveSubAccounts);
-        res.send(adminsHaveSubAccounts);
+        return res.send(adminsHaveSubAccounts);
 
     }).catch((e) => {
-        res.status(404).send();
+        return res.status(404).send();
     });
 });
 
-//18 === get all Mappings
+//21 === get all Mappings
 app.get('/get-all-mappings', async(req, res) => {
     res.send(await getData('mappings', {}, {}));
 });
 
-//19 === change mappings account -> req: username , main acc, sub acc
+//22 === change mappings account -> req: username , main acc, sub acc
 app.post('/update-mappings-account', (req, res) => {
 
-    MAPPINGS_MODEL.find({ username: req.body.username }).then((d) => {
-        if (d.length !== 0) { //means user found
+    MAPPINGS_MODEL.findOne({username: req.body.username}).then((d)=>{
+        if(d != null){ //user found
+            MAIN_ACC_MODEL.findOne({email: req.body.mainAccount}).then((main_acc)=>{
+                
+                if(main_acc != null){ //main_account found
+                    getSubAccounts(req.body.mainAccount).then((sub_accs)=>{ //getting un assigned sub accounts
 
-            ADMIN_MODEL.find({ email: req.body.mainAccount }, { password: 1, _id: 0 }).then(async(data) => {
-                if (data.length !== 0) { //means main acc exist
-                    let sub = new Array();
-                    sub = await getSubAccounts(req.body.mainAccount);
+                        if (sub_accs.includes(req.body.subAccount)) { //sub acc exist in sub_accs                                            
+                            MAPPINGS_MODEL.findOneAndUpdate({ username: req.body.username }, { $set: { mainAccount: req.body.mainAccount, subAccount: req.body.subAccount, password: main_acc.password } }, { new: true }).then((updatedData) => {
+                                return res.send({ status: 'Updated', updatedData });
+                            }).catch((e) => {
+                                return res.status(404).send(e);
+                            });
+                        } else {
+                            return res.status(404).send('sub account not available or invalid'); //sub acc is either not in available subAccs or invalid
+                        }
 
-                    if (sub.includes(req.body.subAccount)) { //sub acc available                                            
-                        MAPPINGS_MODEL.findOneAndUpdate({ username: req.body.username }, { $set: { mainAccount: req.body.mainAccount, subAccount: req.body.subAccount, password: data[0].password } }, { new: true }).then((updatedData) => {
-                            return res.send({ status: 'Updated', updatedData });
-                        }).catch((e) => {
-                            return res.status(404).send(e);
-                        });
-                    } else {
-                        return res.status(404).send('sub account not available or invalid'); //sub acc is either not in available subAccs or invalid
-                    }
-                } else {
-                    return res.status(404).send('main account does not exist');
+                    }).catch((e)=>{
+                        return res.status(404).send(e);
+                    });
                 }
-            }).catch((e) => {
+                else{
+                    return res.status(404).send('Main account does not exist');
+                }
+            }).catch((e)=>{
                 return res.status(404).send(e);
             });
-        } else {
-            return res.status(404).send('User not mapped!!');
         }
-    }).catch((e) => {
+        else{
+            return res.status(404).send('User not found in mappings');
+        }
+    }).catch((e)=>{
         return res.status(404).send(e);
     });
 });
 
-//20 === Remove mapping -> req: username
+//23 === Remove mapping -> req: username
 app.delete('/remove-mapping', (req, res) => {
 
     MAPPINGS_MODEL.find({ username: req.body.username }).then((d) => {
@@ -493,7 +553,7 @@ app.delete('/remove-mapping', (req, res) => {
     });
 });
 
-//21 === adding/updating ip -> req: username, prevIp, newIp, enabled
+//24 === adding/updating ip -> req: username, prevIp, newIp, enabled
 app.post('/add-update-ip', async(req, res) => {
 
     //check ip does not exist already for the username provided
@@ -551,12 +611,12 @@ app.post('/add-update-ip', async(req, res) => {
     }
 });
 
-//22 === getting all ips of user -> args: username
+//25 === getting all ips of user -> args: username
 app.get('/get-user-ips/:username', async(req, res) => {
     return res.send(await getData('user_ips', {username:req.params.username}, {}));
 });
 
-//23 === getting all ips of all users -> args: username
+//26 === getting all ips of all users -> args: username
 app.get('/get-all-users-ips/:username', async(req, res) => {
     return res.send(await getData('user_ips', {}, {}));
 });
@@ -577,7 +637,7 @@ var fileUpload = multer({
     storage: storage
 }).single('file');
 
-//24 === uploading csv/pdf file -> req: filename, filepath
+//27 === uploading csv/pdf file -> req: filename, filepath
 app.post('/upload-file', (req, res) => {
     
     console.log('files: ',req.body);
@@ -589,12 +649,12 @@ app.post('/upload-file', (req, res) => {
     });
 });
 
-//25 === show all rate list files
+//28 === show all rate list files
 app.get('/show-rate-list', async (req, res) =>{
     return res.send(await getData('rate_list', {}, {}));
 });
 
-//26 === download file
+//29 === download file
 app.get('/download-rate-list', (req, res) => {
 
 });
