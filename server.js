@@ -645,9 +645,10 @@ app.post('/upload-file', (req, res) => {
             console.log('files: ',req.files);
             console.log('ext:',mime.extension(sampleFile.mimetype));
             
+            var downloadableUrl = req.body.filename+'.'+mime.extension(sampleFile.mimetype);
             var rateList = new RATE_LIST_MODEL({
                 filename: req.body.filename,
-                filePath: req.body.filename+'.'+mime.extension(sampleFile.mimetype)
+                filePath: downloadableUrl
             });
             var response = await rateList.save();
 
