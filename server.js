@@ -5,7 +5,8 @@ const fs = require('fs');
 const csv = require('fast-csv');
 const multer = require('multer');
 const path = require('path');
-const upload = require('express-fileupload');
+const fileUpload = require('express-fileupload');
+var mime = require('mime-to-extensions');
 
 const { mongoose } = require('./mongoose');
 
@@ -30,6 +31,7 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({
     extended: true
 }));
+
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers",
@@ -41,6 +43,10 @@ app.use((req, res, next) => {
     }
     next();
 });
+
+app.use(fileUpload());
+
+app.use(express.static('uploads'));
 
 //1 === user Signup
 app.post('/signup', (req, res) => {
@@ -348,9 +354,6 @@ app.post('/remove-main-account',authenticateAdmin ,(req, res) => {
 //13 === update main-account password 
 
 
-
-
-
 //14 === Show all main accounts
 app.get('/get-all-main-accounts', authenticateAdmin, async (req, res) => {
 
@@ -621,32 +624,42 @@ app.get('/get-all-users-ips/:username', async(req, res) => {
     return res.send(await getData('user_ips', {}, {}));
 });
 
-// SET STORAGE
-var storage = multer.diskStorage({
-    destination: function (req, file, callback) {
-        callback(null, './uploads');
-    },
-    filename: function (req, file, callback) {
-        console.log(req.body);
-        
-        console.log('filename:',filename);
-        callback(null, req.body.filename);
-    }
-});
-var fileUpload = multer({
-    storage: storage
-}).single('file');
-
 //27 === uploading csv/pdf file -> req: filename, filepath
 app.post('/upload-file', (req, res) => {
+    console.log('req.body:', req.body);
+    let sampleFile = req.files.file;
+    console.log(mime.extension(sampleFile.mimetype));
+    console.log( mime.extension(sampleFile.mimetype) == 'xls');
     
-    console.log('files: ',req.body);
-    //return res.status(200).send('kuch bhi')
-    fileUpload(req, res, function (err) {
-        if (err) {
-            return res.end("Error uploading file." + err);
-        }
-    });
+    if(mime.extension(sampleFile.mimetype) !== 'csv' && mime.extension(sampleFile.mimetype) !== 'xls') {
+        return res.status(400).json({
+            error: 'Invalid file type',
+            status: false
+        });
+    } else {
+        // Use the mv() method to place the file somewhere on your server
+        sampleFile.mv('./uploads/'+req.body.filename+'.'+mime.extension(sampleFile.mimetype), async function(err) {
+            if (err)
+                return res.status(500).send(err.message);
+
+            console.log('files: ',req.files);
+            console.log('ext:',mime.extension(sampleFile.mimetype));
+            
+            var rateList = new RATE_LIST_MODEL({
+                filename: req.body.filename,
+                filePath: req.body.filename+'.'+mime.extension(sampleFile.mimetype)
+            });
+            var response = await rateList.save();
+
+            console.log('response:', response);
+            
+            return res.status(200).json({
+                message: 'File upload successfull!',
+                status: true
+            });
+        });
+    }
+
 });
 
 //28 === show all rate list files
@@ -656,8 +669,8 @@ app.get('/show-rate-list', async (req, res) =>{
 
 //29 === download file
 app.get('/download-rate-list', (req, res) => {
-
 });
+
 //========================================================
 app.listen(3000, () => {
     console.log(`listening on port: 3000`);
