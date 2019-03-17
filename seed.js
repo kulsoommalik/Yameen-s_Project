@@ -34,19 +34,16 @@ const user_stats_array = [{
   timeUsed: 50
 }];
 
-var user1 = new STATS_MODEL(user_stats_array[0]).save();
-var user2 = new STATS_MODEL(user_stats_array[1]).save();
-var user3 = new STATS_MODEL(user_stats_array[2]).save();
-var user4 = new STATS_MODEL(user_stats_array[3]).save();
-var user5 = new STATS_MODEL(user_stats_array[4]).save();
+STATS_MODEL.deleteMany({},{}).then(()=>{
+  var user1 = new STATS_MODEL(user_stats_array[0]).save();
+  var user2 = new STATS_MODEL(user_stats_array[1]).save();
+  var user3 = new STATS_MODEL(user_stats_array[2]).save();
+  var user4 = new STATS_MODEL(user_stats_array[3]).save();
+  var user5 = new STATS_MODEL(user_stats_array[4]).save();
 
-
-    // MAPPINGS_MODEL.remove({}).then(()=>{
-    //     var userOne = new MAPPINGS_MODEL(users[0]).save();
-    //     var userTwo = new MAPPINGS_MODEL(users[1]).save();
-    //     var userThree = new MAPPINGS_MODEL(users[2]).save();
-    //     var userFour = new MAPPINGS_MODEL(users[3]).save();
-    // });
+}).catch(()=>{
+  console.log("seeding error");
+});
 
 
     
